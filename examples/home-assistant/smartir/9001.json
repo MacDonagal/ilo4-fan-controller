@@ -1,0 +1,23 @@
+{
+  "manufacturer": "Domo",
+  "supportedModels": ["DOxxx (mobile A/C)"],
+  "supportedController": "Broadlink",
+  "commandsEncoding": "Base64",
+  "minTemperature": 22,
+  "maxTemperature": 26,
+  "precision": 1,
+  "operationModes": ["cool"],
+  "fanModes": ["auto"],
+  "commands": {
+    "off": "PASTE_CODE_off",
+    "cool": {
+      "auto": {
+        "22": "PASTE_CODE_cool_22",
+        "23": "PASTE_CODE_cool_23",
+        "24": "PASTE_CODE_cool_24",
+        "25": "PASTE_CODE_cool_25",
+        "26": "PASTE_CODE_cool_26"
+      }
+    }
+  }
+}

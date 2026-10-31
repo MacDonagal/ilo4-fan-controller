@@ -1,0 +1,22 @@
+smartir:
+
+climate:
+  - platform: smartir
+    name: Clim garage
+    unique_id: clim_garage
+    device_code: 9001
+    controller_data: remote.rm_mini
+    # Optional but recommended:
+    temperature_sensor: sensor.garage_temperature
+    humidity_sensor: sensor.garage_humidity
+    # Real on/off state from a power-metering plug (see template below)
+    power_sensor: binary_sensor.clim_garage_running
+
+template:
+  - binary_sensor:
+      - name: "Clim garage running"
+        unique_id: clim_garage_running
+        device_class: running
+        # Adjust the sensor and the threshold to your plug / A/C model
+        state: "{{ states('sensor.prise_clim_power') | float(0) > 300 }}"
+        delay_off: "00:01:00"
