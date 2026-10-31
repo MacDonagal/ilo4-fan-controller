@@ -4,9 +4,8 @@ climate:
   - platform: smartir
     name: Clim garage
     unique_id: clim_garage
-    # 1390 = Midea RG52C1/BGE remote, works with many Midea-made units
-    # (Domo DO263A: 17-30 °C, cool/dry/fan_only, NO heat).
-    # If it does not respond, use the custom profile 9001 (learned codes).
+    # 1390 = Midea RG52C1/BGE remote, tested OK with a Domo DO263A
+    # (17-30 °C, cool/dry/fan_only, NO heat: don't use heat/auto modes).
     device_code: 1390
     controller_data: remote.rm_mini
     # Optional but recommended:
