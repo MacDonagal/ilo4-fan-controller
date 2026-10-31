@@ -6,8 +6,23 @@ import { Fade } from "react-awesome-reveal";
 
 import Fan from "../components/Fan";
 import type { FanObject } from "../types/Fan";
-import { changeFanSpeedSchema } from "../schemas/changeFanSpeed";
+import { changeFanSpeedSchema, type FanMode } from "../schemas/changeFanSpeed";
 import { fetchFans } from "../lib/iloClient";
+
+const MODE_STORAGE_KEY = "ilo4-fan-controller:mode";
+
+const MODE_OPTIONS: { value: FanMode; label: string; title: string }[] = [
+    {
+        value: "min",
+        label: "Minimum",
+        title: "Speed is a floor: iLO can still spin fans up if something gets hot",
+    },
+    {
+        value: "lock",
+        label: "Lock",
+        title: "Speed is fixed: iLO thermal regulation is disabled",
+    },
+];
 
 interface Props {
     fans: FanObject[];
@@ -56,10 +71,31 @@ const Home = ({ fans, fail }: Props): JSX.Element => {
     const [editAll, setEditAll] = useState<boolean>(false);
     const [unlocking, setUnlocking] = useState<boolean>(false);
     const [presetLoading, setPresetLoading] = useState<number>(0);
+    // "min" by default: the safe mode, iLO keeps its thermal regulation
+    const [mode, setMode] = useState<FanMode>("min");
 
     useEffect(() => {
         setBaselineSpeeds(initialFanSpeeds);
     }, [initialFanSpeeds]);
+
+    // Remember the chosen mode in this browser (optional, may be unavailable)
+    useEffect(() => {
+        try {
+            const saved = window.localStorage.getItem(MODE_STORAGE_KEY);
+            if (saved === "min" || saved === "lock") setMode(saved);
+        } catch {
+            /* storage unavailable: keep the default */
+        }
+    }, []);
+
+    const changeMode = (value: FanMode) => {
+        setMode(value);
+        try {
+            window.localStorage.setItem(MODE_STORAGE_KEY, value);
+        } catch {
+            /* ignore */
+        }
+    };
 
     const handleUnlock = async () => {
         setUnlocking(true);
@@ -88,7 +124,7 @@ const Home = ({ fans, fail }: Props): JSX.Element => {
 
         const response = await fetch(`/api/fans`, {
             method: "POST",
-            body: JSON.stringify({ fans: speeds }),
+            body: JSON.stringify({ fans: speeds, mode }),
             headers: { "Content-Type": "application/json" },
         });
         const payload = await response.json();
@@ -126,7 +162,7 @@ const Home = ({ fans, fail }: Props): JSX.Element => {
 
                             const response = await fetch(`/api/fans`, {
                                 method: "POST",
-                                body: JSON.stringify(data),
+                                body: JSON.stringify({ fans: data.fans, mode }),
                                 headers: { "Content-Type": "application/json" },
                             });
                             const payload = await response.json();
@@ -143,6 +179,49 @@ const Home = ({ fans, fail }: Props): JSX.Element => {
                     >
                         {({ errors, isSubmitting, values, setFieldValue }) => (
                             <Form>
+                                <div className="mx-8 mb-4 sm:mx-1">
+                                    <div className="flex flex-col items-center gap-2 sm:flex-row sm:justify-between">
+                                        <span className="font-medium text-white">
+                                            Mode
+                                        </span>
+                                        <div
+                                            className="inline-flex w-full p-1 bg-gray-800 border border-gray-700 rounded sm:w-auto"
+                                            role="radiogroup"
+                                            aria-label="Fan control mode"
+                                        >
+                                            {MODE_OPTIONS.map((option) => (
+                                                <button
+                                                    key={option.value}
+                                                    type="button"
+                                                    role="radio"
+                                                    aria-checked={mode === option.value}
+                                                    title={option.title}
+                                                    onClick={() => changeMode(option.value)}
+                                                    className={`flex-1 sm:flex-none px-5 py-1.5 font-semibold rounded duration-150 ${
+                                                        mode === option.value
+                                                            ? option.value === "lock"
+                                                                ? "bg-amber-600 text-amber-50"
+                                                                : "bg-emerald-600 text-emerald-50"
+                                                            : "text-gray-300 hover:bg-gray-700"
+                                                    }`}
+                                                >
+                                                    {option.label}
+                                                </button>
+                                            ))}
+                                        </div>
+                                    </div>
+                                    <p
+                                        className={`mt-2 text-sm text-center sm:text-right ${
+                                            mode === "lock"
+                                                ? "text-amber-400"
+                                                : "text-gray-400"
+                                        }`}
+                                    >
+                                        {mode === "lock"
+                                            ? "⚠ Fans are pinned: the iLO will NOT speed them up if a component (CPU, RAID controller...) overheats."
+                                            : "Speeds are a minimum: the iLO can still spin the fans up when needed."}
+                                    </p>
+                                </div>
                                 <div className="mx-8 my-3 mb-6 sm:flex sm:items-center sm:justify-between sm:mx-1 sm:mb-4">
                                     <label
                                         className="flex items-center mx-auto mb-4 cursor-pointer w-fit sm:mx-0 sm:mb-0"
@@ -175,6 +254,7 @@ const Home = ({ fans, fail }: Props): JSX.Element => {
                                                     1
                                                 )
                                             }
+                                            type="button"
                                             title="32% Fan Speed"
                                         >
                                             Quiet
@@ -189,6 +269,7 @@ const Home = ({ fans, fail }: Props): JSX.Element => {
                                                     2
                                                 )
                                             }
+                                            type="button"
                                             title="60% Fan Speed"
                                         >
                                             Normal
@@ -203,6 +284,7 @@ const Home = ({ fans, fail }: Props): JSX.Element => {
                                                     3
                                                 )
                                             }
+                                            type="button"
                                             title="90% Fan Speed"
                                         >
                                             Turbo
@@ -232,6 +314,7 @@ const Home = ({ fans, fail }: Props): JSX.Element => {
                                         <button
                                             className="block w-full px-10 py-2 font-semibold duration-150 rounded sm:hidden sm:w-auto disabled:bg-gray-500 disabled:cursor-not-allowed bg-emerald-600 hover:bg-emerald-700 text-emerald-50"
                                             disabled={isSubmitting}
+                                            type="submit"
                                             title="Update fans to specified speed"
                                         >
                                             {isSubmitting
@@ -242,6 +325,7 @@ const Home = ({ fans, fail }: Props): JSX.Element => {
                                             <button
                                                 className="hidden w-full px-10 py-2 font-semibold duration-150 rounded sm:block sm:w-auto disabled:bg-gray-500 disabled:cursor-not-allowed bg-emerald-600 hover:bg-emerald-700 text-emerald-50"
                                                 disabled={isSubmitting}
+                                                type="submit"
                                                 title="Update fans to specified speed"
                                             >
                                                 {isSubmitting
