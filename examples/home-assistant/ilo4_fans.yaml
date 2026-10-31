@@ -167,15 +167,16 @@ automation:
     trigger:
       - platform: numeric_state
         entity_id: sensor.ilo_inlet_temperature
-        above: 27
+        above: 28        # garage: A/C on above 28 °C
         for: "00:05:00"
     action:
-      - service: remote.send_command
+      # SmartIR climate entity (Domo DO263A, profile 1390)
+      - service: climate.set_temperature
         target:
-          entity_id: remote.rm_mini      # adapt to your entity id
+          entity_id: climate.clim_garage
         data:
-          device: clim
-          command: cool_22               # learned beforehand
+          hvac_mode: cool
+          temperature: 24
       - service: input_number.set_value
         target:
           entity_id: input_number.ilo_fans_target
@@ -188,15 +189,12 @@ automation:
     trigger:
       - platform: numeric_state
         entity_id: sensor.ilo_inlet_temperature
-        below: 23
+        below: 24        # ~4 °C hysteresis to avoid short cycling
         for: "00:10:00"
     action:
-      - service: remote.send_command
+      - service: climate.turn_off
         target:
-          entity_id: remote.rm_mini
-        data:
-          device: clim
-          command: "off"
+          entity_id: climate.clim_garage
       - service: script.ilo_fans_auto
 
   # SAFETY NET: any sensor (CPU, RAID controller "HD Controller", PSU...)
