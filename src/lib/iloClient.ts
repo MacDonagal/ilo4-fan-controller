@@ -91,7 +91,15 @@ export const setFanSpeeds = async (payload: ChangeFanSpeedInput): Promise<void> 
     await withSshConnection(async (ssh) => {
         for (let i = 0; i < validated.fans.length; i++) {
             const speed = Math.round((validated.fans[i] / 100) * 255);
-            await ssh.execCommand(`fan p ${i} lock ${speed}`);
+
+            if (validated.mode === "min") {
+                // Give regulation back to the iLO, with a floor instead of a fixed speed
+                await ssh.execCommand(`fan p ${i} unlock`);
+                await ssh.execCommand(`fan p ${i} max 255`);
+                await ssh.execCommand(`fan p ${i} min ${speed}`);
+            } else {
+                await ssh.execCommand(`fan p ${i} lock ${speed}`);
+            }
         }
     });
 };

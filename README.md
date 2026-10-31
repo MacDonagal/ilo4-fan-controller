@@ -28,6 +28,17 @@ The controller now exposes a small REST API for automation or scripting:
 -   `POST /api/fans` — sets fan speeds using a JSON body like `{ "fans": [32, 32, 32, 32, 32, 32, 32, 32] }` (values are percentages).
 -   `POST /api/fans/unlock` — unlocks global fan control.
 
+`POST /api/fans` accepts an optional `mode`:
+
+-   `"lock"` (default) — fans are pinned to the given speed. **iLO thermal regulation is disabled**: a hot component (e.g. the Smart Array controller) will not make the fans spin faster.
+-   `"min"` — the given speed is only a **minimum**; the iLO can still ramp fans up when needed. Recommended for unattended use.
+
+```bash
+curl -s -X POST "$BASE_URL/api/fans" \
+  -H 'Content-Type: application/json' \
+  -d '{"fans":[30,30,30,30,30,30,30,30],"mode":"min"}' | jq .
+```
+
 Example usage with `curl`:
 
 ```bash

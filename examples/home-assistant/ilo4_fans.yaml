@@ -105,7 +105,9 @@ rest:
           {{ ns.worst }}
 
 rest_command:
-  # Same speed on every fan; the number of fans is read from the sensor
+  # Same speed on every fan; the number of fans is read from the sensor.
+  # mode "min" (default here) = floor only, iLO can still speed fans up.
+  # mode "lock" = fixed speed, iLO regulation disabled (emergency use only).
   ilo4_fans_set:
     url: !secret ilo4_fans_api
     method: POST
@@ -113,7 +115,7 @@ rest_command:
     timeout: 90   # one SSH command per fan, can take 10-20 s
     payload: >
       {% set n = (state_attr('sensor.ilo_fans_average', 'fans') or []) | count %}
-      {"fans": {{ [speed | int] * n }}}
+      {"fans": {{ [speed | int] * n }}, "mode": "{{ mode | default('min') }}"}
   # Give control back to the iLO automatic thermal regulation
   ilo4_fans_unlock:
     url: !secret ilo4_fans_unlock
@@ -122,7 +124,7 @@ rest_command:
 
 input_number:
   ilo_fans_target:
-    name: Server fans
+    name: Server fans minimum
     min: 10
     max: 100
     step: 5
@@ -137,7 +139,7 @@ script:
       - service: rest_command.ilo4_fans_unlock
 
 automation:
-  # Slider -> fixed speed
+  # Slider -> minimum speed (iLO keeps regulating above it)
   - id: ilo4_fans_slider
     alias: "iLO - apply fan slider"
     mode: restart
@@ -210,6 +212,7 @@ automation:
       - service: rest_command.ilo4_fans_set
         data:
           speed: 100
+          mode: lock
       - service: input_number.set_value
         target:
           entity_id: input_number.ilo_fans_target
