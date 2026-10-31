@@ -8,7 +8,7 @@
 #  /config/secrets.yaml:
 #    ilo4_fans_api: "http://192.168.1.50:3000/api/fans"
 #    ilo4_fans_unlock: "http://192.168.1.50:3000/api/fans/unlock"
-#    ilo_thermal_url: "https://192.168.1.69/redfish/v1/Chassis/1/Thermal"
+#    ilo_thermal_url: "https://192.168.1.69/redfish/v1/chassis/1/Thermal"
 #    ilo_username: "homeassistant"   # read-only iLO user is enough for temps
 #    ilo_password: "xxx"
 # =============================================================================
@@ -54,7 +54,7 @@ rest:
         unit_of_measurement: "°C"
         state_class: measurement
         value_template: >
-          {% set t = value_json.Temperatures | selectattr('Name', 'search', 'Inlet') | first %}
+          {% set t = value_json.Temperatures | selectattr('Name', 'search', 'Inlet Ambient') | first %}
           {{ t.ReadingCelsius if t.ReadingCelsius is defined else t.CurrentReading }}
       - name: "iLO hottest CPU"
         unique_id: ilo_temp_cpu_max
@@ -68,7 +68,16 @@ rest:
             {% if r is number and r > ns.m %}{% set ns.m = r %}{% endif %}
           {% endfor %}
           {{ ns.m }}
+      - name: "iLO RAID controller temperature"
+        unique_id: ilo_temp_raid_controller
+        device_class: temperature
+        unit_of_measurement: "°C"
+        state_class: measurement
+        value_template: >
+          {% set t = value_json.Temperatures | selectattr('Name', 'search', 'HD Controller') | list %}
+          {% if t %}{{ t[0].ReadingCelsius if t[0].ReadingCelsius is defined else t[0].CurrentReading }}{% else %}{{ none }}{% endif %}
       # Smallest gap (°C) between ANY sensor and its own critical threshold.
+      # Room inlet sensors are excluded (handled by the A/C automations).
       # Catches every component (CPU, RAID controller, PSU, DIMMs...).
       - name: "iLO thermal margin"
         unique_id: ilo_thermal_margin
@@ -81,7 +90,7 @@ rest:
           {% for t in value_json.Temperatures %}
             {% set r = t.ReadingCelsius if t.ReadingCelsius is defined else t.CurrentReading %}
             {% set c = t.UpperThresholdCritical | default(0) %}
-            {% if r is number and c is number and r > 0 and c > 0 and (c - r) < ns.m %}
+            {% if 'Inlet' not in t.Name and r is number and c is number and r > 0 and c > 0 and (c - r) < ns.m %}
               {% set ns.m = c - r %}
             {% endif %}
           {% endfor %}
@@ -97,7 +106,7 @@ rest:
           {% for t in value_json.Temperatures %}
             {% set r = t.ReadingCelsius if t.ReadingCelsius is defined else t.CurrentReading %}
             {% set c = t.UpperThresholdCritical | default(0) %}
-            {% if r is number and c is number and r > 0 and c > 0 and (c - r) < ns.m %}
+            {% if 'Inlet' not in t.Name and r is number and c is number and r > 0 and c > 0 and (c - r) < ns.m %}
               {% set ns.m = c - r %}
               {% set ns.worst = t.Name ~ ' ' ~ r ~ '/' ~ c ~ '°C' %}
             {% endif %}
