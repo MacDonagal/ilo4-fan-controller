@@ -1,5 +1,8 @@
 # SmartIR profile for a Domo mobile A/C (custom)
 
+> First try the built-in profile **1390** (Midea RG52C1/BGE remote): many
+> Domo units are Midea-made. Only use this custom profile if 1390 does not work.
+
 No Domo profile exists in SmartIR, so this is a minimal one built from codes
 learned with a Broadlink RM Mini: cool mode, auto fan, 22-26 °C + off.
 
