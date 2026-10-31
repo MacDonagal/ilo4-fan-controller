@@ -57,24 +57,44 @@ curl -s "$BASE_URL/api/fans" | jq .
 
 ## Docker
 
-This repository contains a docker image which can easily be pulled down to use in a Docker/Kubernetes environment. Modify the command below with **your** values regarding your setup and then you can run the command:
+### Docker Compose (recommended)
+
+A hardened [`docker-compose.yaml`](docker-compose.yaml) is provided (read-only filesystem, no capabilities, healthcheck). The iLO password is passed as a Docker secret:
 
 ```bash
-git clone https://github.com/0n1cOn3/ilo4-fan-controller
+git clone https://github.com/DavidIlie/ilo4-fan-controller
+cd ilo4-fan-controller
+echo -n 'your-ilo-password' > ilo_password.txt && chmod 600 ilo_password.txt
+# edit ILO_HOST / ILO_USERNAME in docker-compose.yaml, then:
+docker compose up -d --build
+```
+
+Every variable also accepts a `_FILE` variant (`ILO_HOST_FILE`, `ILO_USERNAME_FILE`, `ILO_PASSWORD_FILE`) pointing to a file.
+
+### docker run
+
+```bash
 docker build -t local/ilo4-fan-controller:latest-local .
+```
 
 ```bash
 docker run -d \
   --name=ilo4-fan-controller \
   -p 3000:3000 \
   -e ILO_USERNAME='*your username*' \
-  -e ILO_PASSWORD='*your password**' \
+  -e ILO_PASSWORD='*your password*' \
   -e ILO_HOST='*the ip address you access ILO on*' \
   --restart unless-stopped \
   local/ilo4-fan-controller:latest-local
 ```
 
+`GET /api/health` is a lightweight liveness endpoint (it does not contact the iLO).
+
 You can modify this to work with Rancher, Portainer, etc.
+
+### Home Assistant
+
+See [`examples/home-assistant/ilo4_fans.yaml`](examples/home-assistant/ilo4_fans.yaml) for a ready-to-use package (fan & temperature sensors, speed slider, automatic mode, overheat safety net).
 
 ## Directly with node
 

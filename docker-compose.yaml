@@ -1,0 +1,29 @@
+services:
+  ilo4-fan-controller:
+    # Local build (needed for *_FILE secrets + healthcheck until merged upstream)
+    build: .
+    image: ilo4-fan-controller:local
+    container_name: ilo4-fan-controller
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    environment:
+      ILO_HOST: "192.168.1.69"        # your iLO IP
+      ILO_USERNAME: "Administrator"
+      ILO_PASSWORD_FILE: /run/secrets/ilo_password
+    secrets:
+      - ilo_password
+    # Hardening
+    read_only: true
+    tmpfs:
+      - /tmp
+      - /app/.next/cache
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+
+secrets:
+  ilo_password:
+    # echo -n 'YourPassword' > ilo_password.txt && chmod 600 ilo_password.txt
+    file: ./ilo_password.txt

@@ -1,0 +1,172 @@
+# =============================================================================
+#  iLO4 Fan Controller + Home Assistant (+ Broadlink RM Mini for the A/C)
+#  Copy to /config/packages/ilo4_fans.yaml and enable packages:
+#
+#    homeassistant:
+#      packages: !include_dir_named packages
+#
+#  /config/secrets.yaml:
+#    ilo4_fans_api: "http://192.168.1.50:3000/api/fans"
+#    ilo4_fans_unlock: "http://192.168.1.50:3000/api/fans/unlock"
+#    ilo_thermal_url: "https://192.168.1.69/redfish/v1/Chassis/1/Thermal"
+#    ilo_username: "homeassistant"   # read-only iLO user is enough for temps
+#    ilo_password: "xxx"
+# =============================================================================
+
+rest:
+  # --- Fans (via the controller) ---------------------------------------------
+  - resource: !secret ilo4_fans_api
+    scan_interval: 30
+    timeout: 20
+    sensor:
+      - name: "iLO fans average"
+        unique_id: ilo4_fans_average
+        unit_of_measurement: "%"
+        state_class: measurement
+        icon: mdi:fan
+        value_template: >
+          {% set v = value_json.fans | map(attribute='CurrentReading') | list %}
+          {{ (v | sum / v | count) | round(0) if v | count > 0 else none }}
+        # Full fan list kept as attribute -> used to count fans automatically
+        json_attributes:
+          - fans
+      - name: "iLO fans max"
+        unique_id: ilo4_fans_max
+        unit_of_measurement: "%"
+        state_class: measurement
+        icon: mdi:fan-chevron-up
+        value_template: >
+          {% set v = value_json.fans | map(attribute='CurrentReading') | list %}
+          {{ v | max if v | count > 0 else none }}
+
+  # --- Temperatures (directly from the iLO Redfish API) ----------------------
+  - resource: !secret ilo_thermal_url
+    authentication: basic
+    username: !secret ilo_username
+    password: !secret ilo_password
+    verify_ssl: false   # self-signed iLO certificate
+    scan_interval: 60
+    timeout: 20
+    sensor:
+      - name: "iLO inlet temperature"
+        unique_id: ilo_temp_inlet
+        device_class: temperature
+        unit_of_measurement: "°C"
+        state_class: measurement
+        value_template: >
+          {% set t = value_json.Temperatures | selectattr('Name', 'search', 'Inlet') | first %}
+          {{ t.ReadingCelsius if t.ReadingCelsius is defined else t.CurrentReading }}
+      - name: "iLO hottest CPU"
+        unique_id: ilo_temp_cpu_max
+        device_class: temperature
+        unit_of_measurement: "°C"
+        state_class: measurement
+        value_template: >
+          {% set ns = namespace(m=0) %}
+          {% for t in value_json.Temperatures | selectattr('Name', 'search', 'CPU') %}
+            {% set r = t.ReadingCelsius if t.ReadingCelsius is defined else t.CurrentReading %}
+            {% if r is number and r > ns.m %}{% set ns.m = r %}{% endif %}
+          {% endfor %}
+          {{ ns.m }}
+
+rest_command:
+  # Same speed on every fan; the number of fans is read from the sensor
+  ilo4_fans_set:
+    url: !secret ilo4_fans_api
+    method: POST
+    content_type: "application/json"
+    timeout: 90   # one SSH command per fan, can take 10-20 s
+    payload: >
+      {% set n = (state_attr('sensor.ilo_fans_average', 'fans') or []) | count %}
+      {"fans": {{ [speed | int] * n }}}
+  # Give control back to the iLO automatic thermal regulation
+  ilo4_fans_unlock:
+    url: !secret ilo4_fans_unlock
+    method: POST
+    timeout: 60
+
+input_number:
+  ilo_fans_target:
+    name: Server fans
+    min: 10
+    max: 100
+    step: 5
+    unit_of_measurement: "%"
+    icon: mdi:fan
+
+script:
+  ilo_fans_auto:
+    alias: "Server fans - automatic (iLO)"
+    icon: mdi:fan-auto
+    sequence:
+      - service: rest_command.ilo4_fans_unlock
+
+automation:
+  # Slider -> fixed speed
+  - id: ilo4_fans_slider
+    alias: "iLO - apply fan slider"
+    mode: restart
+    trigger:
+      - platform: state
+        entity_id: input_number.ilo_fans_target
+        for: "00:00:02"   # debounce while dragging
+    action:
+      - service: rest_command.ilo4_fans_set
+        data:
+          speed: "{{ states('input_number.ilo_fans_target') | int }}"
+
+  # Room too hot -> A/C on + fans 50 %
+  - id: ilo_room_hot
+    alias: "Server room - too hot"
+    trigger:
+      - platform: numeric_state
+        entity_id: sensor.ilo_inlet_temperature
+        above: 27
+        for: "00:05:00"
+    action:
+      - service: remote.send_command
+        target:
+          entity_id: remote.rm_mini      # adapt to your entity id
+        data:
+          device: clim
+          command: cool_22               # learned beforehand
+      - service: input_number.set_value
+        target:
+          entity_id: input_number.ilo_fans_target
+        data:
+          value: 50
+
+  # Back to normal -> A/C off + iLO automatic mode
+  - id: ilo_room_ok
+    alias: "Server room - back to normal"
+    trigger:
+      - platform: numeric_state
+        entity_id: sensor.ilo_inlet_temperature
+        below: 23
+        for: "00:10:00"
+    action:
+      - service: remote.send_command
+        target:
+          entity_id: remote.rm_mini
+        data:
+          device: clim
+          command: "off"
+      - service: script.ilo_fans_auto
+
+  # SAFETY NET: "lock" mode disables iLO regulation -> hand it back if hot
+  - id: ilo_cpu_emergency
+    alias: "iLO - CPU emergency"
+    trigger:
+      - platform: numeric_state
+        entity_id: sensor.ilo_hottest_cpu
+        above: 75
+      - platform: state
+        entity_id: sensor.ilo_hottest_cpu
+        to: "unavailable"
+        for: "00:05:00"
+    action:
+      - service: script.ilo_fans_auto
+      - service: persistent_notification.create
+        data:
+          title: "Server overheating"
+          message: "Fans handed back to iLO automatic mode (CPU {{ states('sensor.ilo_hottest_cpu') }}°C)."

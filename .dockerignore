@@ -1,1 +1,13 @@
 .env
+.env.*
+!.env.template
+.git
+.github
+.next
+node_modules
+readme
+*.md
+tui.py
+requirements.txt
+docker-compose*.yaml
+examples
