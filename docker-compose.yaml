@@ -25,5 +25,7 @@ services:
 
 secrets:
   ilo_password:
-    # echo -n 'YourPassword' > ilo_password.txt && chmod 600 ilo_password.txt
+    # echo -n 'YourPassword' > ilo_password.txt
+    # chown 1001:1001 ilo_password.txt && chmod 400 ilo_password.txt
+    # (the app runs as UID 1001 and Compose mounts the file with its host permissions)
     file: ./ilo_password.txt

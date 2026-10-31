@@ -75,7 +75,9 @@ A hardened [`docker-compose.yaml`](docker-compose.yaml) is provided (read-only f
 ```bash
 git clone https://github.com/DavidIlie/ilo4-fan-controller
 cd ilo4-fan-controller
-echo -n 'your-ilo-password' > ilo_password.txt && chmod 600 ilo_password.txt
+echo -n 'your-ilo-password' > ilo_password.txt
+# the app runs as UID 1001: the secret file must be readable by it
+sudo chown 1001:1001 ilo_password.txt && chmod 400 ilo_password.txt
 # edit ILO_HOST / ILO_USERNAME in docker-compose.yaml, then:
 docker compose up -d --build
 ```
