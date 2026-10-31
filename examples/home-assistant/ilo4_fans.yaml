@@ -68,6 +68,41 @@ rest:
             {% if r is number and r > ns.m %}{% set ns.m = r %}{% endif %}
           {% endfor %}
           {{ ns.m }}
+      # Smallest gap (°C) between ANY sensor and its own critical threshold.
+      # Catches every component (CPU, RAID controller, PSU, DIMMs...).
+      - name: "iLO thermal margin"
+        unique_id: ilo_thermal_margin
+        device_class: temperature
+        unit_of_measurement: "°C"
+        state_class: measurement
+        icon: mdi:thermometer-alert
+        value_template: >
+          {% set ns = namespace(m=999, worst='') %}
+          {% for t in value_json.Temperatures %}
+            {% set r = t.ReadingCelsius if t.ReadingCelsius is defined else t.CurrentReading %}
+            {% set c = t.UpperThresholdCritical | default(0) %}
+            {% if r is number and c is number and r > 0 and c > 0 and (c - r) < ns.m %}
+              {% set ns.m = c - r %}
+            {% endif %}
+          {% endfor %}
+          {{ ns.m if ns.m < 999 else none }}
+        json_attributes_path: "$"
+        json_attributes:
+          - Temperatures
+      - name: "iLO hottest sensor"
+        unique_id: ilo_hottest_sensor
+        icon: mdi:thermometer-high
+        value_template: >
+          {% set ns = namespace(m=999, worst='unknown') %}
+          {% for t in value_json.Temperatures %}
+            {% set r = t.ReadingCelsius if t.ReadingCelsius is defined else t.CurrentReading %}
+            {% set c = t.UpperThresholdCritical | default(0) %}
+            {% if r is number and c is number and r > 0 and c > 0 and (c - r) < ns.m %}
+              {% set ns.m = c - r %}
+              {% set ns.worst = t.Name ~ ' ' ~ r ~ '/' ~ c ~ '°C' %}
+            {% endif %}
+          {% endfor %}
+          {{ ns.worst }}
 
 rest_command:
   # Same speed on every fan; the number of fans is read from the sensor
@@ -153,20 +188,37 @@ automation:
           command: "off"
       - service: script.ilo_fans_auto
 
-  # SAFETY NET: "lock" mode disables iLO regulation -> hand it back if hot
-  - id: ilo_cpu_emergency
-    alias: "iLO - CPU emergency"
+  # SAFETY NET: any sensor (CPU, RAID controller "HD Controller", PSU...)
+  # gets close to its critical threshold -> fans 100 % immediately.
+  # "lock" mode disables iLO regulation, so this automation is MANDATORY.
+  - id: ilo_thermal_emergency
+    alias: "iLO - thermal emergency"
+    mode: single
     trigger:
+      - platform: numeric_state
+        entity_id: sensor.ilo_thermal_margin
+        below: 15          # °C left before the critical threshold
       - platform: numeric_state
         entity_id: sensor.ilo_hottest_cpu
         above: 75
-      - platform: state
-        entity_id: sensor.ilo_hottest_cpu
+      - platform: state    # temperatures lost = assume the worst
+        entity_id: sensor.ilo_thermal_margin
         to: "unavailable"
         for: "00:05:00"
     action:
-      - service: script.ilo_fans_auto
+      # Direct call (no slider debounce): every fan locked at 100 %
+      - service: rest_command.ilo4_fans_set
+        data:
+          speed: 100
+      - service: input_number.set_value
+        target:
+          entity_id: input_number.ilo_fans_target
+        data:
+          value: 100
       - service: persistent_notification.create
         data:
           title: "Server overheating"
-          message: "Fans handed back to iLO automatic mode (CPU {{ states('sensor.ilo_hottest_cpu') }}°C)."
+          message: >
+            Fans forced to 100 %. Closest to critical: {{ states('sensor.ilo_hottest_sensor') }}
+            (margin {{ states('sensor.ilo_thermal_margin') }}°C).
+            Use "Server fans - automatic (iLO)" once it has cooled down.
