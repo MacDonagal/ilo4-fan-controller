@@ -166,14 +166,15 @@ automation:
     alias: "Server room - too hot"
     trigger:
       - platform: numeric_state
-        entity_id: sensor.ilo_inlet_temperature
+        # Room sensor (here a Broadlink RM4 Mini probe), or sensor.ilo_inlet_temperature
+        entity_id: sensor.rm4_mini_temperature
         above: 28        # garage: A/C on above 28 °C
         for: "00:05:00"
     action:
       # SmartIR climate entity (Domo DO263A, profile 1390)
       - service: climate.set_temperature
         target:
-          entity_id: climate.clim_garage
+          entity_id: climate.serveur_ac
         data:
           hvac_mode: cool
           temperature: 24
@@ -188,13 +189,14 @@ automation:
     alias: "Server room - back to normal"
     trigger:
       - platform: numeric_state
-        entity_id: sensor.ilo_inlet_temperature
+        # Room sensor (here a Broadlink RM4 Mini probe), or sensor.ilo_inlet_temperature
+        entity_id: sensor.rm4_mini_temperature
         below: 24        # ~4 °C hysteresis to avoid short cycling
         for: "00:10:00"
     action:
       - service: climate.turn_off
         target:
-          entity_id: climate.clim_garage
+          entity_id: climate.serveur_ac
       - service: script.ilo_fans_auto
 
   # SAFETY NET: any sensor (CPU, RAID controller "HD Controller", PSU...)
