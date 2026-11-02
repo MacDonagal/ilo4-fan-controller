@@ -164,6 +164,23 @@ input_number:
     unit_of_measurement: "°C"
     icon: mdi:thermometer-alert
 
+  # --- Fan floor by presence (Alarmo state) ---
+  # Set once from the UI after install: home 30, away 45.
+  ilo_fans_home:
+    name: Ventilos - plancher présent
+    min: 10
+    max: 100
+    step: 5
+    unit_of_measurement: "%"
+    icon: mdi:home
+  ilo_fans_away:
+    name: Ventilos - plancher absent
+    min: 10
+    max: 100
+    step: 5
+    unit_of_measurement: "%"
+    icon: mdi:home-export-outline
+
   ilo_fans_target:
     name: Server fans minimum
     min: 10
@@ -286,6 +303,45 @@ automation:
             Clim allumée mais pièce à {{ states('sensor.rm4_mini_temperature') }} °C
             depuis 30 min. Bac à eau plein ? Gaine débranchée ? Ordre IR non reçu ?
             P420i : {{ states('sensor.ilo_raid_controller_temperature') }} °C.
+
+  # Fan floor follows the alarm: quieter when someone is home, more cooling
+  # margin when nobody is. Still a FLOOR ("min" mode): the iLO can go higher.
+  - id: ilo_fans_presence
+    alias: "Ventilos - plancher selon l'alarme"
+    mode: restart
+    trigger:
+      - platform: state
+        entity_id: alarm_control_panel.alarmo
+        to:
+          - disarmed
+          - armed_home
+          - armed_night
+          - armed_away
+          - armed_vacation
+      - platform: homeassistant
+        event: start
+      # also when the values are changed from the dashboard
+      - platform: state
+        entity_id:
+          - input_number.ilo_fans_home
+          - input_number.ilo_fans_away
+    condition:
+      # never override the thermal emergency (fans locked at 100 %)
+      - condition: numeric_state
+        entity_id: sensor.ilo_thermal_margin
+        above: 15
+    action:
+      - delay: "00:00:05"
+      - service: input_number.set_value
+        target:
+          entity_id: input_number.ilo_fans_target
+        data:
+          value: >
+            {% if states('alarm_control_panel.alarmo') in ['armed_away', 'armed_vacation'] %}
+              {{ states('input_number.ilo_fans_away') | float(45) }}
+            {% else %}
+              {{ states('input_number.ilo_fans_home') | float(30) }}
+            {% endif %}
 
   # SAFETY NET: any sensor (CPU, RAID controller "HD Controller", PSU...)
   # gets close to its critical threshold -> fans 100 % immediately.
