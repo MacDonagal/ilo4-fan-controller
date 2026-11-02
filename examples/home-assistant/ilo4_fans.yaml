@@ -132,6 +132,38 @@ rest_command:
     timeout: 60
 
 input_number:
+  # --- A/C thresholds, adjustable from the dashboard ---
+  # No "initial": values set in the UI survive restarts. After the first
+  # install, set them once: on 27, setpoint 24, off 22, alert 30.
+  clim_seuil_on:
+    name: Clim - allumer au-dessus de
+    min: 24
+    max: 32
+    step: 0.5
+    unit_of_measurement: "°C"
+    icon: mdi:thermometer-chevron-up
+  clim_consigne:
+    name: Clim - consigne
+    min: 18
+    max: 28
+    step: 1
+    unit_of_measurement: "°C"
+    icon: mdi:thermostat
+  clim_seuil_off:
+    name: Clim - éteindre en dessous de
+    min: 16
+    max: 26
+    step: 0.5
+    unit_of_measurement: "°C"
+    icon: mdi:thermometer-chevron-down
+  clim_alerte:
+    name: Clim - alerte si toujours au-dessus de
+    min: 26
+    max: 35
+    step: 0.5
+    unit_of_measurement: "°C"
+    icon: mdi:thermometer-alert
+
   ilo_fans_target:
     name: Server fans minimum
     min: 10
@@ -162,49 +194,61 @@ automation:
           speed: "{{ states('input_number.ilo_fans_target') | int }}"
 
   # Room too hot -> A/C on + fans 50 %
-  - id: ilo_room_hot
-    alias: "Server room - too hot"
-    mode: single
-    trigger:
-      - platform: numeric_state
-        # Room sensor (here a Broadlink RM4 Mini probe), or sensor.ilo_inlet_temperature
-        entity_id: sensor.rm4_mini_temperature
-        above: 28        # A/C on above 28 °C
-        for: "00:05:00"
-    action:
-      # SmartIR climate entity (Domo DO263A, profile 1390).
-      # Setpoint (23) is BELOW the "back to normal" threshold (25), otherwise
-      # the room would hover around the setpoint and never get below it.
-      - service: climate.set_temperature
-        target:
-          entity_id: climate.serveur_ac
-        data:
-          hvac_mode: cool
-          temperature: 23
-      - service: input_number.set_value
-        target:
-          entity_id: input_number.ilo_fans_target
-        data:
-          value: 50
+  # ---------------------------------------------------------------------------
+  #  A/C: Home Assistant only switches the A/C on/off and alerts.
+  #  The A/C's own thermostat keeps the room at the setpoint.
+  #  Room sensor: sensor.rm4_mini_temperature (or sensor.ilo_inlet_temperature)
+  #  Notifications: adapt notify.mobile_app_iphone_de_cyril to your phone.
+  # ---------------------------------------------------------------------------
 
-  # Back to normal -> A/C off + fan floor back to 30 %
-  - id: ilo_room_ok
-    alias: "Server room - back to normal"
+  # Room too warm -> A/C on (cool, setpoint)
+  - id: clim_on
+    alias: "Clim - allumer si trop chaud"
     mode: single
     trigger:
-      # Crossing the threshold...
       - platform: numeric_state
         entity_id: sensor.rm4_mini_temperature
-        below: 25
-        for: "00:10:00"
-      # ...and a periodic check, in case it was already below (HA restart,
-      # A/C switched on manually, etc.)
+        above: input_number.clim_seuil_on
+        for: "00:05:00"
+      # periodic check: covers HA restarts and missed crossings
       - platform: time_pattern
         minutes: "/15"
     condition:
       - condition: numeric_state
         entity_id: sensor.rm4_mini_temperature
-        below: 25
+        above: input_number.clim_seuil_on
+      - condition: state
+        entity_id: climate.serveur_ac
+        state: "off"
+    action:
+      - service: climate.set_temperature
+        target:
+          entity_id: climate.serveur_ac
+        data:
+          hvac_mode: cool
+          temperature: "{{ states('input_number.clim_consigne') | int }}"
+      - service: notify.mobile_app_iphone_de_cyril
+        data:
+          title: "❄️ Clim allumée"
+          message: >
+            Pièce à {{ states('sensor.rm4_mini_temperature') }} °C,
+            consigne {{ states('input_number.clim_consigne') | int }} °C.
+
+  # Room naturally cool (A/C cannot heat: this happens in winter / at night)
+  - id: clim_off
+    alias: "Clim - éteindre si la pièce est fraîche"
+    mode: single
+    trigger:
+      - platform: numeric_state
+        entity_id: sensor.rm4_mini_temperature
+        below: input_number.clim_seuil_off
+        for: "00:30:00"
+      - platform: time_pattern
+        minutes: "/15"
+    condition:
+      - condition: numeric_state
+        entity_id: sensor.rm4_mini_temperature
+        below: input_number.clim_seuil_off
       - condition: not
         conditions:
           - condition: state
@@ -214,11 +258,34 @@ automation:
       - service: climate.turn_off
         target:
           entity_id: climate.serveur_ac
-      - service: input_number.set_value
-        target:
-          entity_id: input_number.ilo_fans_target
+      - service: notify.mobile_app_iphone_de_cyril
         data:
-          value: 30
+          title: "🌙 Clim éteinte"
+          message: "Pièce à {{ states('sensor.rm4_mini_temperature') }} °C."
+
+  # A/C on but the room keeps heating -> something is wrong
+  - id: clim_alerte
+    alias: "Clim - alerte inefficace"
+    mode: single
+    trigger:
+      - platform: numeric_state
+        entity_id: sensor.rm4_mini_temperature
+        above: input_number.clim_alerte
+        for: "00:30:00"
+    condition:
+      - condition: not
+        conditions:
+          - condition: state
+            entity_id: climate.serveur_ac
+            state: "off"
+    action:
+      - service: notify.mobile_app_iphone_de_cyril
+        data:
+          title: "⚠️ Clim inefficace"
+          message: >
+            Clim allumée mais pièce à {{ states('sensor.rm4_mini_temperature') }} °C
+            depuis 30 min. Bac à eau plein ? Gaine débranchée ? Ordre IR non reçu ?
+            P420i : {{ states('sensor.ilo_raid_controller_temperature') }} °C.
 
   # SAFETY NET: any sensor (CPU, RAID controller "HD Controller", PSU...)
   # gets close to its critical threshold -> fans 100 % immediately.
@@ -248,6 +315,12 @@ automation:
           entity_id: input_number.ilo_fans_target
         data:
           value: 100
+      - service: notify.mobile_app_iphone_de_cyril
+        data:
+          title: "🚨 Serveur en surchauffe"
+          message: >
+            Ventilos forcés à 100 %. {{ states('sensor.ilo_hottest_sensor') }}
+            (marge {{ states('sensor.ilo_thermal_margin') }} °C).
       - service: persistent_notification.create
         data:
           title: "Server overheating"
