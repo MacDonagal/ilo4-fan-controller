@@ -257,11 +257,18 @@ automation:
         entity_id: climate.serveur_ac
         state: "off"
     action:
-      - service: climate.set_temperature
+      # Mode first, then setpoint: works with SmartIR and with integrations
+      # that ignore hvac_mode inside climate.set_temperature (AR Smart IR...)
+      - service: climate.set_hvac_mode
         target:
           entity_id: climate.serveur_ac
         data:
           hvac_mode: cool
+      - delay: "00:00:02"
+      - service: climate.set_temperature
+        target:
+          entity_id: climate.serveur_ac
+        data:
           temperature: "{{ states('input_number.clim_consigne') | int }}"
       - service: script.notif_serveur
         data:
@@ -291,9 +298,11 @@ automation:
             entity_id: climate.serveur_ac
             state: "off"
     action:
-      - service: climate.turn_off
+      - service: climate.set_hvac_mode
         target:
           entity_id: climate.serveur_ac
+        data:
+          hvac_mode: "off"
       - service: script.notif_serveur
         data:
           title: "🌙 Clim éteinte"
