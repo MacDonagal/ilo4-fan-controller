@@ -190,6 +190,25 @@ input_number:
     icon: mdi:fan
 
 script:
+  # Single place for every notification of this package (here: Telegram).
+  # Needs the Telegram bot integration; if you have several bots, add
+  # config_entry_id, and "target: <chat_id>" to choose the chat.
+  notif_serveur:
+    alias: "Notification serveur"
+    icon: mdi:send
+    mode: queued
+    fields:
+      title:
+        description: Title (bold)
+        example: "❄️ Clim allumée"
+      message:
+        description: Message body
+        example: "Pièce à 28 °C"
+    sequence:
+      - service: telegram_bot.send_message
+        data:
+          parse_mode: html
+          message: "<b>{{ title }}</b>\n{{ message }}"
   ilo_fans_auto:
     alias: "Server fans - automatic (iLO)"
     icon: mdi:fan-auto
@@ -215,7 +234,7 @@ automation:
   #  A/C: Home Assistant only switches the A/C on/off and alerts.
   #  The A/C's own thermostat keeps the room at the setpoint.
   #  Room sensor: sensor.rm4_mini_temperature (or sensor.ilo_inlet_temperature)
-  #  Notifications: adapt notify.mobile_app_iphone_de_cyril to your phone.
+  #  Notifications: sent by script.notif_serveur (Telegram).
   # ---------------------------------------------------------------------------
 
   # Room too warm -> A/C on (cool, setpoint)
@@ -244,7 +263,7 @@ automation:
         data:
           hvac_mode: cool
           temperature: "{{ states('input_number.clim_consigne') | int }}"
-      - service: notify.mobile_app_iphone_de_cyril
+      - service: script.notif_serveur
         data:
           title: "❄️ Clim allumée"
           message: >
@@ -275,7 +294,7 @@ automation:
       - service: climate.turn_off
         target:
           entity_id: climate.serveur_ac
-      - service: notify.mobile_app_iphone_de_cyril
+      - service: script.notif_serveur
         data:
           title: "🌙 Clim éteinte"
           message: "Pièce à {{ states('sensor.rm4_mini_temperature') }} °C."
@@ -296,7 +315,7 @@ automation:
             entity_id: climate.serveur_ac
             state: "off"
     action:
-      - service: notify.mobile_app_iphone_de_cyril
+      - service: script.notif_serveur
         data:
           title: "⚠️ Clim inefficace"
           message: >
@@ -371,7 +390,7 @@ automation:
           entity_id: input_number.ilo_fans_target
         data:
           value: 100
-      - service: notify.mobile_app_iphone_de_cyril
+      - service: script.notif_serveur
         data:
           title: "🚨 Serveur en surchauffe"
           message: >
