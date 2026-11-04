@@ -229,7 +229,6 @@ automation:
         data:
           speed: "{{ states('input_number.ilo_fans_target') | int }}"
 
-  # Room too hot -> A/C on + fans 50 %
   # ---------------------------------------------------------------------------
   #  A/C: Home Assistant only switches the A/C on/off and alerts.
   #  The A/C's own thermostat keeps the room at the setpoint.
