@@ -135,6 +135,7 @@ input_number:
   # --- A/C thresholds, adjustable from the dashboard ---
   # No "initial": values set in the UI survive restarts. After the first
   # install, set them once: on 27, setpoint 24, off 22, alert 30.
+  # The A/C off rule (< 22 °C) also stops the "fan only" stage.
   clim_seuil_on:
     name: Clim - allumer au-dessus de
     min: 24
@@ -163,6 +164,30 @@ input_number:
     step: 0.5
     unit_of_measurement: "°C"
     icon: mdi:thermometer-alert
+
+  # --- A/C "fan only" stage (free cooling / air mixing) ---
+  # Set once from the UI after install: on 25, off 23, outdoor gap 2.
+  ventil_seuil_on:
+    name: Ventilation - allumer au-dessus de
+    min: 20
+    max: 30
+    step: 0.5
+    unit_of_measurement: "°C"
+    icon: mdi:fan-chevron-up
+  ventil_seuil_off:
+    name: Ventilation - éteindre en dessous de
+    min: 18
+    max: 28
+    step: 0.5
+    unit_of_measurement: "°C"
+    icon: mdi:fan-chevron-down
+  ventil_ecart:
+    name: Ventilation - extérieur plus frais d'au moins
+    min: 0
+    max: 10
+    step: 0.5
+    unit_of_measurement: "°C"
+    icon: mdi:thermometer-minus
 
   # --- Fan floor by presence (Alarmo state) ---
   # Set once from the UI after install: home 30, away 45.
@@ -252,9 +277,12 @@ automation:
       - condition: numeric_state
         entity_id: sensor.rm4_mini_temperature
         above: input_number.clim_seuil_on
+      # From off, or from the "fan only" stage when it is not enough
       - condition: state
         entity_id: climate.serveur_ac
-        state: "off"
+        state:
+          - "off"
+          - fan_only
     action:
       # Mode first, then setpoint: works with SmartIR and with integrations
       # that ignore hvac_mode inside climate.set_temperature (AR Smart IR...)
@@ -275,6 +303,83 @@ automation:
           message: >
             Pièce à {{ states('sensor.rm4_mini_temperature') }} °C,
             consigne {{ states('input_number.clim_consigne') | int }} °C.
+
+  # Stage 1: "fan only" while the room is warm but below the cooling
+  # threshold, and only if outside is cooler (the unit may draw outdoor air).
+  # Measured: inlet -3 °C, Smart Array P420i -10 °C with fan only.
+  - id: ventil_on
+    alias: "Ventilation - allumer si pièce tiède et extérieur plus frais"
+    mode: single
+    trigger:
+      - platform: numeric_state
+        entity_id: sensor.rm4_mini_temperature
+        above: input_number.ventil_seuil_on
+        for: "00:05:00"
+      - platform: time_pattern
+        minutes: "/15"
+    variables:
+      piece: "{{ states('sensor.rm4_mini_temperature') | float(0) }}"
+      exterieur: "{{ state_attr('weather.forecast_maison', 'temperature') | float(99) }}"
+    condition:
+      - condition: numeric_state
+        entity_id: sensor.rm4_mini_temperature
+        above: input_number.ventil_seuil_on
+      - condition: numeric_state
+        entity_id: sensor.rm4_mini_temperature
+        below: input_number.clim_seuil_on
+      - condition: state
+        entity_id: climate.serveur_ac
+        state: "off"
+      - condition: template
+        value_template: >
+          {{ exterieur <= piece - states('input_number.ventil_ecart') | float(2) }}
+    action:
+      - service: climate.set_hvac_mode
+        target:
+          entity_id: climate.serveur_ac
+        data:
+          hvac_mode: fan_only
+      - service: script.notif_serveur
+        data:
+          title: "🌬️ Ventilation allumée"
+          message: "Pièce à {{ piece }} °C, extérieur à {{ exterieur }} °C."
+
+  # Stop the "fan only" stage: room cool enough, or outside no longer cooler.
+  # If the room is still too warm, "Clim - allumer si trop chaud" takes over.
+  - id: ventil_off
+    alias: "Ventilation - éteindre"
+    mode: single
+    trigger:
+      - platform: numeric_state
+        entity_id: sensor.rm4_mini_temperature
+        below: input_number.ventil_seuil_off
+        for: "00:10:00"
+      - platform: time_pattern
+        minutes: "/15"
+    variables:
+      piece: "{{ states('sensor.rm4_mini_temperature') | float(0) }}"
+      exterieur: "{{ state_attr('weather.forecast_maison', 'temperature') | float(99) }}"
+    condition:
+      - condition: state
+        entity_id: climate.serveur_ac
+        state: fan_only
+      - condition: template
+        value_template: >
+          {{ piece < states('input_number.ventil_seuil_off') | float(23)
+             or exterieur > piece - 1 }}
+    action:
+      - service: climate.set_hvac_mode
+        target:
+          entity_id: climate.serveur_ac
+        data:
+          hvac_mode: "off"
+      - service: script.notif_serveur
+        data:
+          title: "💤 Ventilation éteinte"
+          message: >
+            Pièce à {{ piece }} °C, extérieur à {{ exterieur }} °C
+            {{ '(pièce assez fraîche)' if piece < states('input_number.ventil_seuil_off') | float(23)
+               else '(extérieur plus assez frais)' }}.
 
   # Room naturally cool (A/C cannot heat: this happens in winter / at night)
   - id: clim_off
